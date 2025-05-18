@@ -42,6 +42,122 @@ public class Board : MonoBehaviour
         }
     }
 
+    private void SetSpecialFruit(int x, int y, FruitType specialType)
+    {
+        if (!IsInsideBoard(x, y)) return;
+
+        GameObject fruit = grid[x, y];
+        if (fruit == null) return;
+
+        Fruit fruitScript = fruit.GetComponent<Fruit>();
+        if (fruitScript != null)
+        {
+            fruitScript.SetSpecial(specialType);
+        }
+    }
+
+    private List<Vector2Int> FindAllMatches()
+    {
+        List<Vector2Int> matchedPositions = new List<Vector2Int>();
+
+        // Горизонтальные матчи
+        for (int y = 0; y < height; y++)
+        {
+            int matchLength = 1;
+            for (int x = 1; x < width; x++)
+            {
+                if (grid[x, y] != null && grid[x - 1, y] != null &&
+                    grid[x, y].tag == grid[x - 1, y].tag)
+                {
+                    matchLength++;
+                }
+                else
+                {
+                    if (matchLength == 4)
+                    {
+                        // Помечаем три на удаление
+                        matchedPositions.Add(new Vector2Int(x - 1, y));
+                        matchedPositions.Add(new Vector2Int(x - 2, y));
+                        matchedPositions.Add(new Vector2Int(x - 3, y));
+
+                        // Превращаем четвёртый (x-4) в суперфрукт
+                        SetSpecialFruit(x - 4, y, FruitType.LineHorizontal);
+                    }
+                    else if (matchLength >= 3)
+                    {
+                        for (int k = 0; k < matchLength; k++)
+                            matchedPositions.Add(new Vector2Int(x - 1 - k, y));
+                    }
+
+                    matchLength = 1;
+                }
+            }
+
+            if (matchLength == 4)
+            {
+                matchedPositions.Add(new Vector2Int(width - 1, y));
+                matchedPositions.Add(new Vector2Int(width - 2, y));
+                matchedPositions.Add(new Vector2Int(width - 3, y));
+
+                SetSpecialFruit(width - 4, y, FruitType.LineHorizontal);
+            }
+            else if (matchLength >= 3)
+            {
+                for (int k = 0; k < matchLength; k++)
+                    matchedPositions.Add(new Vector2Int(width - 1 - k, y));
+            }
+        }
+
+        // Вертикальные матчи
+        for (int x = 0; x < width; x++)
+        {
+            int matchLength = 1;
+            for (int y = 1; y < height; y++)
+            {
+                if (grid[x, y] != null && grid[x, y - 1] != null &&
+                    grid[x, y].tag == grid[x, y - 1].tag)
+                {
+                    matchLength++;
+                }
+                else
+                {
+                    if (matchLength == 4)
+                    {
+                        matchedPositions.Add(new Vector2Int(x, y - 1));
+                        matchedPositions.Add(new Vector2Int(x, y - 2));
+                        matchedPositions.Add(new Vector2Int(x, y - 3));
+
+                        SetSpecialFruit(x, y - 4, FruitType.LineVertical);
+                    }
+                    else if (matchLength >= 3)
+                    {
+                        for (int k = 0; k < matchLength; k++)
+                            matchedPositions.Add(new Vector2Int(x, y - 1 - k));
+                    }
+
+                    matchLength = 1;
+                }
+            }
+
+            if (matchLength == 4)
+            {
+                matchedPositions.Add(new Vector2Int(x, height - 1));
+                matchedPositions.Add(new Vector2Int(x, height - 2));
+                matchedPositions.Add(new Vector2Int(x, height - 3));
+
+                SetSpecialFruit(x, height - 4, FruitType.LineVertical);
+            }
+            else if (matchLength >= 3)
+            {
+                for (int k = 0; k < matchLength; k++)
+                    matchedPositions.Add(new Vector2Int(x, height - 1 - k));
+            }
+        }
+
+        return matchedPositions;
+    }
+
+
     GameObject GetValidPrefab(int x, int y)
     {
         List<GameObject> validPrefabs = new List<GameObject>(fruitPrefabs);
@@ -140,28 +256,6 @@ public class Board : MonoBehaviour
         isProcessing = false;
     }
 
-
-    private IEnumerator RevertSwap(Fruit fruit1, Fruit fruit2)
-    {
-        yield return new WaitForSeconds(0.3f);
-
-        int x1 = fruit1.x;
-        int y1 = fruit1.y;
-        int x2 = fruit2.x;
-        int y2 = fruit2.y;
-
-        // Меняем обратно в сетке
-        grid[x1, y1] = fruit1.gameObject;
-        grid[x2, y2] = fruit2.gameObject;
-
-        // Меняем координаты обратно
-        fruit1.x = x2; fruit1.y = y2;
-        fruit2.x = x1; fruit2.y = y1;
-
-        StartCoroutine(fruit1.SmoothMove(new Vector2(x2, y2)));
-        StartCoroutine(fruit2.SmoothMove(new Vector2(x1, y1)));
-    }
-
     private bool HasMatchAt(int x, int y)
     {
         GameObject fruitGO = grid[x, y];
@@ -192,95 +286,94 @@ public class Board : MonoBehaviour
         isProcessing = true;
 
         bool comboFound;
+
         do
         {
-            yield return new WaitForSeconds(0.3f);
-            List<Vector2Int> matches = FindAllMatches();
+            yield return new WaitForSeconds(0.2f);
 
+            List<Vector2Int> matches = FindAllMatches();
             comboFound = matches.Count > 0;
+
+            HashSet<GameObject> fruitsToDestroy = new HashSet<GameObject>();
 
             if (comboFound)
             {
                 foreach (Vector2Int pos in matches)
                 {
-                    Destroy(grid[pos.x, pos.y]);
-                    grid[pos.x, pos.y] = null;
+                    GameObject fruitObj = grid[pos.x, pos.y];
+                    if (fruitObj == null) continue;
+
+                    Fruit fruit = fruitObj.GetComponent<Fruit>();
+                    if (fruit == null) continue;
+
+                    // если суперфрукт — активируем его эффект
+                    if (fruit.type == FruitType.LineHorizontal)
+                    {
+                        yield return StartCoroutine(DestroyRow(fruit.y));
+                    }
+                    else if (fruit.type == FruitType.LineVertical)
+                    {
+                        yield return StartCoroutine(DestroyColumn(fruit.x));
+                    }
+                    else
+                    {
+                        // обычный фрукт — просто на уничтожение
+                        fruitsToDestroy.Add(fruitObj);
+                    }
                 }
 
-                yield return new WaitForSeconds(0.3f);
+                // Удаляем обычные фрукты
+                foreach (GameObject obj in fruitsToDestroy)
+                {
+                    Fruit f = obj.GetComponent<Fruit>();
+                    if (f != null)
+                        grid[f.x, f.y] = null;
+
+                    Destroy(obj);
+                }
+
+                yield return new WaitForSeconds(0.2f);
+
                 CollapseColumns();
-                yield return new WaitForSeconds(0.3f);
+                yield return new WaitForSeconds(0.2f);
+
                 FillEmptySpaces();
-                yield return new WaitForSeconds(0.3f);
+                yield return new WaitForSeconds(0.2f);
             }
-        }
-        while (comboFound);
+
+        } while (comboFound);
 
         isProcessing = false;
     }
 
-    private List<Vector2Int> FindAllMatches()
+    private IEnumerator DestroyRow(int row)
     {
-        List<Vector2Int> matchedPositions = new List<Vector2Int>();
-
-        // Поиск горизонтальных матчей
-        for (int y = 0; y < height; y++)
-        {
-            int matchLength = 1;
-            for (int x = 1; x < width; x++)
-            {
-                if (grid[x, y] != null && grid[x - 1, y] != null &&
-                    grid[x, y].tag == grid[x - 1, y].tag)
-                {
-                    matchLength++;
-                }
-                else
-                {
-                    if (matchLength >= 3)
-                    {
-                        for (int k = 0; k < matchLength; k++)
-                            matchedPositions.Add(new Vector2Int(x - 1 - k, y));
-                    }
-                    matchLength = 1;
-                }
-            }
-            if (matchLength >= 3)
-            {
-                for (int k = 0; k < matchLength; k++)
-                    matchedPositions.Add(new Vector2Int(width - 1 - k, y));
-            }
-        }
-
-        // Поиск вертикальных матчей
         for (int x = 0; x < width; x++)
         {
-            int matchLength = 1;
-            for (int y = 1; y < height; y++)
+            if (grid[x, row] != null)
             {
-                if (grid[x, y] != null && grid[x, y - 1] != null &&
-                    grid[x, y].tag == grid[x, y - 1].tag)
-                {
-                    matchLength++;
-                }
-                else
-                {
-                    if (matchLength >= 3)
-                    {
-                        for (int k = 0; k < matchLength; k++)
-                            matchedPositions.Add(new Vector2Int(x, y - 1 - k));
-                    }
-                    matchLength = 1;
-                }
-            }
-            if (matchLength >= 3)
-            {
-                for (int k = 0; k < matchLength; k++)
-                    matchedPositions.Add(new Vector2Int(x, height - 1 - k));
+                Destroy(grid[x, row]);
+                grid[x, row] = null;
             }
         }
 
-        return matchedPositions;
+        yield return new WaitForSeconds(0.1f);
     }
+
+    private IEnumerator DestroyColumn(int col)
+    {
+        for (int y = 0; y < height; y++)
+        {
+            if (grid[col, y] != null)
+            {
+                Destroy(grid[col, y]);
+                grid[col, y] = null;
+            }
+        }
+
+        yield return new WaitForSeconds(0.1f);
+    }
+
 
     private void CollapseColumns()
     {

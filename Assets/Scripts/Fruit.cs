@@ -1,36 +1,47 @@
 using System.Collections;
 using UnityEngine;
 
+public enum FruitType
+{
+    Normal,
+    LineHorizontal,
+    LineVertical
+}
+
 public class Fruit : MonoBehaviour
 {
     public int x;
     public int y;
     [SerializeField]private Board _board;
+    private SpriteRenderer spriteRenderer;
+    public FruitType type = FruitType.Normal;
 
     private void Awake()
     {
         _board = FindObjectOfType<Board>();
+        spriteRenderer = GetComponent<SpriteRenderer>();
     }
 
-    //public void Move(int deltaX, int deltaY)
-    //{
-    //    int targetX = x + deltaX;
-    //    int targetY = y + deltaY;
+    public void SetSpecial(FruitType newType)
+    {
+        type = newType;
 
-    //    // Проверка границ
-    //    if (_board.IsInsideBoard(targetX, targetY) && _board.grid[targetX, targetY] == null)
-    //    {
-    //        // Обновить позицию в сетке
-    //        _board.grid[x, y] = null;
-    //        _board.grid[targetX, targetY] = this.gameObject;
-
-    //        x = targetX;
-    //        y = targetY;
-
-    //        // Анимация перемещения
-    //        StartCoroutine(SmoothMove(new Vector2(x, y)));
-    //    }
-    //}
+        if (spriteRenderer != null)
+        {
+            switch (type)
+            {
+                case FruitType.LineHorizontal:
+                    spriteRenderer.color = Color.green;
+                    break;
+                case FruitType.LineVertical:
+                    spriteRenderer.color = Color.black;
+                    break;
+                case FruitType.Normal:
+                    spriteRenderer.color = Color.white; // можно задать исходный цвет
+                    break;
+            }
+        }
+    }
 
     public IEnumerator SmoothMove(Vector2 targetPosition)
     {
