@@ -351,6 +351,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3db4e99ec0091d345860c3419486057a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  Cross: {fileID: 21300000, guid: 74e97223eae7606438ecf1b82497d112, type: 3}
+  Rainbow: {fileID: 21300000, guid: e956f592ba49ba441ac3c68a94a0a29a, type: 3}
+  LineVertical: {fileID: 21300000, guid: 2efd42da5954af24c866d2e2823ce747, type: 3}
+  LineHorizontal: {fileID: 21300000, guid: 08c88742d9a8b084e98b6d8fe6e9e3b8, type: 3}
   width: 8
   height: 8
   fruitPrefabs:

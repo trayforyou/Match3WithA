@@ -1,9 +1,14 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 public class Board : MonoBehaviour
 {
+    public Sprite Cross;
+    public Sprite Rainbow;
+    public Sprite LineVertical;
+    public Sprite LineHorizontal;
     public int width = 8;
     public int height = 8;
     public GameObject[] fruitPrefabs;
@@ -281,10 +286,30 @@ public class Board : MonoBehaviour
         return count >= 3;
     }
 
+    private Dictionary<string, List<Fruit>> GroupMatchesByTag(List<Vector2Int> positions)
+    {
+        var result = new Dictionary<string, List<Fruit>>();
+
+        foreach (var pos in positions)
+        {
+            GameObject go = grid[pos.x, pos.y];
+            if (go == null) continue;
+
+            Fruit fruit = go.GetComponent<Fruit>();
+            if (fruit == null) continue;
+
+            if (!result.ContainsKey(go.tag))
+                result[go.tag] = new List<Fruit>();
+
+            result[go.tag].Add(fruit);
+        }
+
+        return result;
+    }
+
     private IEnumerator ClearAndRefill()
     {
         isProcessing = true;
-
         bool comboFound;
 
         do
@@ -294,49 +319,94 @@ public class Board : MonoBehaviour
             List<Vector2Int> matches = FindAllMatches();
             comboFound = matches.Count > 0;
 
-            HashSet<GameObject> fruitsToDestroy = new HashSet<GameObject>();
-
             if (comboFound)
             {
-                foreach (Vector2Int pos in matches)
+                Dictionary<string, List<Fruit>> groupedMatches = GroupMatchesByTag(matches);
+                HashSet<GameObject> toDestroy = new HashSet<GameObject>();
+
+                foreach (var group in groupedMatches)
                 {
-                    GameObject fruitObj = grid[pos.x, pos.y];
-                    if (fruitObj == null) continue;
+                    List<Fruit> fruits = group.Value;
 
-                    Fruit fruit = fruitObj.GetComponent<Fruit>();
-                    if (fruit == null) continue;
+                    if (fruits.Count == 3)
+                    {
+                        // собираем данные
+                        int horizontal = 0;
+                        int vertical = 0;
+                        Fruit normalFruit = null;
 
-                    // если суперфрукт — активируем его эффект
-                    if (fruit.type == FruitType.LineHorizontal)
-                    {
-                        yield return StartCoroutine(DestroyRow(fruit.y));
-                    }
-                    else if (fruit.type == FruitType.LineVertical)
-                    {
-                        yield return StartCoroutine(DestroyColumn(fruit.x));
+                        foreach (var fruit in fruits)
+                        {
+                            switch (fruit.type)
+                            {
+                                case FruitType.LineHorizontal:
+                                    horizontal++;
+                                    break;
+                                case FruitType.LineVertical:
+                                    vertical++;
+                                    break;
+                                default:
+                                    normalFruit = fruit;
+                                    break;
+                            }
+                        }
+
+                        if (horizontal == 1 && vertical == 1 && normalFruit != null)
+                        {
+                            // создаём крест на месте обычного фрукта
+                            normalFruit.SetSpecial(FruitType.Cross);
+                            toDestroy.UnionWith(fruits.Where(f => f != normalFruit).Select(f => f.gameObject));
+                        }
+                        else if (horizontal + vertical == 3)
+                        {
+                            // все три — суперфрукты, активируем каждый
+                            foreach (var f in fruits)
+                            {
+                                yield return ActivateSuperFruit(f);
+                            }
+                        }
+                        else
+                        {
+                            // есть только один суперфрукт — активируем его
+                            Fruit super = fruits.FirstOrDefault(f => f.type != FruitType.Normal);
+                            if (super != null)
+                            {
+                                yield return ActivateSuperFruit(super);
+                                foreach (var f in fruits)
+                                {
+                                    if (f != super)
+                                        toDestroy.Add(f.gameObject);
+                                }
+                            }
+                            else
+                            {
+                                // обычный матч
+                                foreach (var f in fruits)
+                                    toDestroy.Add(f.gameObject);
+                            }
+                        }
                     }
                     else
                     {
-                        // обычный фрукт — просто на уничтожение
-                        fruitsToDestroy.Add(fruitObj);
+                        // стандартное поведение — удаляем всё
+                        foreach (var f in fruits)
+                            toDestroy.Add(f.gameObject);
                     }
                 }
 
-                // Удаляем обычные фрукты
-                foreach (GameObject obj in fruitsToDestroy)
+                // Удаляем объекты
+                foreach (var obj in toDestroy)
                 {
-                    Fruit f = obj.GetComponent<Fruit>();
-                    if (f != null)
-                        grid[f.x, f.y] = null;
+                    Fruit fruit = obj.GetComponent<Fruit>();
+                    if (fruit != null)
+                        grid[fruit.x, fruit.y] = null;
 
                     Destroy(obj);
                 }
 
                 yield return new WaitForSeconds(0.2f);
-
                 CollapseColumns();
                 yield return new WaitForSeconds(0.2f);
-
                 FillEmptySpaces();
                 yield return new WaitForSeconds(0.2f);
             }
@@ -346,15 +416,120 @@ public class Board : MonoBehaviour
         isProcessing = false;
     }
 
+    private IEnumerator ActivateSuperFruit(Fruit fruit)
+    {
+        if (fruit == null) yield break;
+
+        // Сохраняем координаты и убираем ссылку из сетки заранее
+        int fx = fruit.x;
+        int fy = fruit.y;
+        grid[fx, fy] = null;
+
+        // Выполняем эффект
+        switch (fruit.type)
+        {
+            case FruitType.LineHorizontal:
+                yield return StartCoroutine(DestroyRow(fy));
+                break;
+            case FruitType.LineVertical:
+                yield return StartCoroutine(DestroyColumn(fx));
+                break;
+            case FruitType.Cross:
+                yield return StartCoroutine(DestroyRow(fy));
+                yield return StartCoroutine(DestroyColumn(fx));
+                break;
+        }
+
+        // Теперь безопасно удалить сам фрукт
+        Destroy(fruit.gameObject);
+    }
+
+
+
+    //private IEnumerator ClearAndRefill()
+    //{
+    //    isProcessing = true;
+
+    //    bool comboFound;
+
+    //    do
+    //    {
+    //        yield return new WaitForSeconds(0.2f);
+
+    //        List<Vector2Int> matches = FindAllMatches();
+    //        comboFound = matches.Count > 0;
+
+    //        HashSet<GameObject> fruitsToDestroy = new HashSet<GameObject>();
+
+    //        if (comboFound)
+    //        {
+    //            foreach (Vector2Int pos in matches)
+    //            {
+    //                GameObject fruitObj = grid[pos.x, pos.y];
+    //                if (fruitObj == null) continue;
+
+    //                Fruit fruit = fruitObj.GetComponent<Fruit>();
+    //                if (fruit == null) continue;
+
+    //                // если суперфрукт — активируем его эффект
+    //                if (fruit.type == FruitType.LineHorizontal)
+    //                {
+    //                    yield return StartCoroutine(DestroyRow(fruit.y));
+    //                }
+    //                else if (fruit.type == FruitType.LineVertical)
+    //                {
+    //                    yield return StartCoroutine(DestroyColumn(fruit.x));
+    //                }
+    //                else
+    //                {
+    //                    // обычный фрукт — просто на уничтожение
+    //                    fruitsToDestroy.Add(fruitObj);
+    //                }
+    //            }
+
+    //            // Удаляем обычные фрукты
+    //            foreach (GameObject obj in fruitsToDestroy)
+    //            {
+    //                Fruit f = obj.GetComponent<Fruit>();
+    //                if (f != null)
+    //                    grid[f.x, f.y] = null;
+
+    //                Destroy(obj);
+    //            }
+
+    //            yield return new WaitForSeconds(0.2f);
+
+    //            CollapseColumns();
+    //            yield return new WaitForSeconds(0.2f);
+
+    //            FillEmptySpaces();
+    //            yield return new WaitForSeconds(0.2f);
+    //        }
+
+    //    } while (comboFound);
+
+    //    isProcessing = false;
+    //}
+
     private IEnumerator DestroyRow(int row)
     {
+        List<GameObject> toDestroy = new List<GameObject>();
+
         for (int x = 0; x < width; x++)
         {
-            if (grid[x, row] != null)
+            var obj = grid[x, row];
+            // grid[x,row] уже null для спецфрукта, поэтому он не попадёт в этот список
+            if (obj != null)
             {
-                Destroy(grid[x, row]);
+                toDestroy.Add(obj);
                 grid[x, row] = null;
             }
+        }
+
+        foreach (var obj in toDestroy)
+        {
+            if (obj != null)
+                Destroy(obj);
         }
 
         yield return new WaitForSeconds(0.1f);
@@ -362,17 +537,28 @@ public class Board : MonoBehaviour
 
     private IEnumerator DestroyColumn(int col)
     {
+        List<GameObject> toDestroy = new List<GameObject>();
+
         for (int y = 0; y < height; y++)
         {
-            if (grid[col, y] != null)
+            var obj = grid[col, y];
+            if (obj != null)
             {
-                Destroy(grid[col, y]);
+                toDestroy.Add(obj);
                 grid[col, y] = null;
             }
         }
 
+        foreach (var obj in toDestroy)
+        {
+            if (obj != null)
+                Destroy(obj);
+        }
+
         yield return new WaitForSeconds(0.1f);
     }
+
+
 
 
     private void CollapseColumns()

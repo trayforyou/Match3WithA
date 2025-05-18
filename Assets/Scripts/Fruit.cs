@@ -5,7 +5,9 @@ public enum FruitType
 {
     Normal,
     LineHorizontal,
-    LineVertical
+    LineVertical,
+    Rainbow,
+    Cross // новый тип суперфрукта
 }
 
 public class Fruit : MonoBehaviour
@@ -15,11 +17,14 @@ public class Fruit : MonoBehaviour
     [SerializeField]private Board _board;
     private SpriteRenderer spriteRenderer;
     public FruitType type = FruitType.Normal;
+    public SpriteRenderer overlayIcon;
+
 
     private void Awake()
     {
         _board = FindObjectOfType<Board>();
         spriteRenderer = GetComponent<SpriteRenderer>();
+        overlayIcon = transform.Find("OverlayIcon")?.GetComponent<SpriteRenderer>();
     }
 
     public void SetSpecial(FruitType newType)
@@ -31,17 +36,45 @@ public class Fruit : MonoBehaviour
             switch (type)
             {
                 case FruitType.LineHorizontal:
-                    spriteRenderer.color = Color.green;
+                    if (overlayIcon != null) 
+                    {
+                        overlayIcon.gameObject.SetActive(true);
+                        overlayIcon.enabled = true;
+                        overlayIcon.sprite = _board.LineHorizontal;
+                    }
                     break;
                 case FruitType.LineVertical:
-                    spriteRenderer.color = Color.black;
+                    if (overlayIcon != null)
+                    {
+                        overlayIcon.gameObject.SetActive(true);
+                        overlayIcon.enabled = true;
+                        overlayIcon.sprite = _board.LineVertical;
+                    }
                     break;
-                case FruitType.Normal:
-                    spriteRenderer.color = Color.white; // можно задать исходный цвет
+                case FruitType.Rainbow:
+                    if (overlayIcon != null)
+                    {
+                        overlayIcon.gameObject.SetActive(true);
+                        overlayIcon.enabled = true;
+                        overlayIcon.sprite = _board.Rainbow;
+                    }
+                    break;
+                case FruitType.Cross:
+                    if (overlayIcon != null)
+                    {
+                        overlayIcon.gameObject.SetActive(true);
+                        overlayIcon.enabled = true;
+                        overlayIcon.sprite = _board.Cross;
+                    }
+                    break;
+                default:
+                    spriteRenderer.color = Color.white;
+                    if (overlayIcon != null) overlayIcon.enabled = false;
                     break;
             }
         }
     }
+
 
     public IEnumerator SmoothMove(Vector2 targetPosition)
     {
