@@ -77,49 +77,69 @@ public class Board : MonoBehaviour
         return x >= 0 && x < width && y >= 0 && y < height;
     }
 
-    public void TrySwapFruits(Fruit fruit, int dx, int dy)
+    public void TrySwapFruits(Fruit fruit1, Fruit fruit2)
     {
-        if (isProcessing)
+        if (isProcessing) return;
+
+        int x1 = fruit1.x;
+        int y1 = fruit1.y;
+        int x2 = fruit2.x;
+        int y2 = fruit2.y;
+
+        // Проверка соседства
+        if (!((Mathf.Abs(x1 - x2) == 1 && y1 == y2) || (Mathf.Abs(y1 - y2) == 1 && x1 == x2)))
             return;
 
-        int x1 = fruit.x;
-        int y1 = fruit.y;
-        int x2 = x1 + dx;
-        int y2 = y1 + dy;
+        StartCoroutine(SwapRoutine(fruit1, fruit2));
+    }
 
-        if (!IsInsideBoard(x2, y2))
-            return;
+    private IEnumerator SwapRoutine(Fruit f1, Fruit f2)
+    {
+        isProcessing = true;
 
-        GameObject otherFruitGO = grid[x2, y2];
-        if (otherFruitGO == null)
-            return;
+        int x1 = f1.x;
+        int y1 = f1.y;
+        int x2 = f2.x;
+        int y2 = f2.y;
 
-        Fruit otherFruit = otherFruitGO.GetComponent<Fruit>();
+        // Меняем в сетке
+        grid[x1, y1] = f2.gameObject;
+        grid[x2, y2] = f1.gameObject;
 
-        // Меняем местами в сетке
-        grid[x1, y1] = otherFruitGO;
-        grid[x2, y2] = fruit.gameObject;
+        // Меняем координаты фруктов
+        f1.x = x2;
+        f1.y = y2;
+        f2.x = x1;
+        f2.y = y1;
 
-        // Меняем координаты у фруктов
-        fruit.x = x2; fruit.y = y2;
-        otherFruit.x = x1; otherFruit.y = y1;
+        // Анимация движения (предполагается метод SmoothMove)
+        yield return StartCoroutine(f1.SmoothMove(new Vector2(x2, y2)));
+        yield return StartCoroutine(f2.SmoothMove(new Vector2(x1, y1)));
 
-        // Запускаем анимацию (предположим SmoothMove реализован)
-        StartCoroutine(fruit.SmoothMove(new Vector2(x2, y2)));
-        StartCoroutine(otherFruit.SmoothMove(new Vector2(x1, y1)));
-
-        // Проверяем, есть ли матч
+        // Проверка матча
         if (HasMatchAt(x2, y2) || HasMatchAt(x1, y1))
         {
-            // Если матч есть — запускаем обработку
-            StartCoroutine(ClearAndRefill());
+            // Если матч есть — запускаем Clear и Refilling
+            yield return StartCoroutine(ClearAndRefill());
         }
         else
         {
-            // Нет матча — откатываем
-            StartCoroutine(RevertSwap(fruit, otherFruit));
+            // Если нет матча — меняем обратно
+            grid[x1, y1] = f1.gameObject;
+            grid[x2, y2] = f2.gameObject;
+
+            f1.x = x1;
+            f1.y = y1;
+            f2.x = x2;
+            f2.y = y2;
+
+            yield return StartCoroutine(f1.SmoothMove(new Vector2(x1, y1)));
+            yield return StartCoroutine(f2.SmoothMove(new Vector2(x2, y2)));
         }
+
+        isProcessing = false;
     }
+
 
     private IEnumerator RevertSwap(Fruit fruit1, Fruit fruit2)
     {
