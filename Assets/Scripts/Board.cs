@@ -233,19 +233,45 @@ public class Board : MonoBehaviour
         f2.x = x1;
         f2.y = y1;
 
-        // Анимация движения (предполагается метод SmoothMove)
+        // Анимация перемещения
         yield return StartCoroutine(f1.SmoothMove(new Vector2(x2, y2)));
         yield return StartCoroutine(f2.SmoothMove(new Vector2(x1, y1)));
 
-        // Проверка матча
-        if (HasMatchAt(x2, y2) || HasMatchAt(x1, y1))
+        // Сохраняем данные до возможного удаления
+        string targetTag = null;
+        int tx = -1, ty = -1;
+
+        if (f1.type == FruitType.Rainbow)
         {
-            // Если матч есть — запускаем Clear и Refilling
+            targetTag = f2.tag;
+            tx = f2.x;
+            ty = f2.y;
+
+            yield return ActivateSuperFruit(f1, targetTag);
+            grid[tx, ty] = null;
+
+            if (f2 != null && f2.gameObject != null)
+                Destroy(f2.gameObject);
+        }
+        else if (f2.type == FruitType.Rainbow)
+        {
+            targetTag = f1.tag;
+            tx = f1.x;
+            ty = f1.y;
+
+            yield return ActivateSuperFruit(f2, targetTag);
+            grid[tx, ty] = null;
+
+            if (f1 != null && f1.gameObject != null)
+                Destroy(f1.gameObject);
+        }
+        else if (HasMatchAt(x2, y2) || HasMatchAt(x1, y1))
+        {
             yield return StartCoroutine(ClearAndRefill());
         }
         else
         {
-            // Если нет матча — меняем обратно
+            // Откат — возвращаем на место
             grid[x1, y1] = f1.gameObject;
             grid[x2, y2] = f2.gameObject;
 
@@ -260,6 +286,7 @@ public class Board : MonoBehaviour
 
         isProcessing = false;
     }
+
 
     private bool HasMatchAt(int x, int y)
     {
@@ -326,17 +353,18 @@ public class Board : MonoBehaviour
 
                 foreach (var group in groupedMatches)
                 {
-                    List<Fruit> fruits = group.Value;
+                    List<Fruit> fruits = group.Value.Where(f => f != null && f.gameObject != null).ToList();
 
                     if (fruits.Count == 3)
                     {
-                        // собираем данные
                         int horizontal = 0;
                         int vertical = 0;
                         Fruit normalFruit = null;
 
                         foreach (var fruit in fruits)
                         {
+                            if (fruit == null) continue;
+
                             switch (fruit.type)
                             {
                                 case FruitType.LineHorizontal:
@@ -353,50 +381,57 @@ public class Board : MonoBehaviour
 
                         if (horizontal == 1 && vertical == 1 && normalFruit != null)
                         {
-                            // создаём крест на месте обычного фрукта
                             normalFruit.SetSpecial(FruitType.Cross);
-                            toDestroy.UnionWith(fruits.Where(f => f != normalFruit).Select(f => f.gameObject));
+                            foreach (var f in fruits)
+                            {
+                                if (f != null && f != normalFruit)
+                                    toDestroy.Add(f.gameObject);
+                            }
                         }
                         else if (horizontal + vertical == 3)
                         {
-                            // все три — суперфрукты, активируем каждый
-                            foreach (var f in fruits)
+                            foreach (var f in fruits.ToList()) // копия
                             {
-                                yield return ActivateSuperFruit(f);
+                                if (f != null)
+                                    yield return ActivateSuperFruit(f);
                             }
                         }
                         else
                         {
-                            // есть только один суперфрукт — активируем его
-                            Fruit super = fruits.FirstOrDefault(f => f.type != FruitType.Normal);
+                            Fruit super = fruits.FirstOrDefault(f => f != null && f.type != FruitType.Normal);
                             if (super != null)
                             {
                                 yield return ActivateSuperFruit(super);
                                 foreach (var f in fruits)
                                 {
-                                    if (f != super)
+                                    if (f != null && f != super)
                                         toDestroy.Add(f.gameObject);
                                 }
                             }
                             else
                             {
-                                // обычный матч
                                 foreach (var f in fruits)
-                                    toDestroy.Add(f.gameObject);
+                                {
+                                    if (f != null)
+                                        toDestroy.Add(f.gameObject);
+                                }
                             }
                         }
                     }
                     else
                     {
-                        // стандартное поведение — удаляем всё
                         foreach (var f in fruits)
-                            toDestroy.Add(f.gameObject);
+                        {
+                            if (f != null)
+                                toDestroy.Add(f.gameObject);
+                        }
                     }
                 }
 
-                // Удаляем объекты
                 foreach (var obj in toDestroy)
                 {
+                    if (obj == null) continue;
+
                     Fruit fruit = obj.GetComponent<Fruit>();
                     if (fruit != null)
                         grid[fruit.x, fruit.y] = null;
@@ -416,16 +451,16 @@ public class Board : MonoBehaviour
         isProcessing = false;
     }
 
-    private IEnumerator ActivateSuperFruit(Fruit fruit)
+    private IEnumerator ActivateSuperFruit(Fruit fruit, string targetTag = null)
     {
-        if (fruit == null) yield break;
+        if (fruit == null || fruit.gameObject == null)
+            yield break;
 
-        // Сохраняем координаты и убираем ссылку из сетки заранее
         int fx = fruit.x;
         int fy = fruit.y;
+
         grid[fx, fy] = null;
 
-        // Выполняем эффект
         switch (fruit.type)
         {
             case FruitType.LineHorizontal:
@@ -438,78 +473,42 @@ public class Board : MonoBehaviour
                 yield return StartCoroutine(DestroyRow(fy));
                 yield return StartCoroutine(DestroyColumn(fx));
                 break;
+            case FruitType.Rainbow:
+                if (!string.IsNullOrEmpty(targetTag))
+                {
+                    yield return StartCoroutine(DestroyAllWithTag(targetTag));
+                }
+                break;
         }
 
-        // Теперь безопасно удалить сам фрукт
         Destroy(fruit.gameObject);
     }
 
+    private IEnumerator DestroyAllWithTag(string tag)
+    {
+        List<GameObject> toDestroy = new List<GameObject>();
 
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                GameObject obj = grid[x, y];
+                if (obj != null && obj.tag == tag)
+                {
+                    toDestroy.Add(obj);
+                    grid[x, y] = null;
+                }
+            }
+        }
 
-    //private IEnumerator ClearAndRefill()
-    //{
-    //    isProcessing = true;
+        foreach (var obj in toDestroy)
+        {
+            if (obj != null)
+                Destroy(obj);
+        }
 
-    //    bool comboFound;
-
-    //    do
-    //    {
-    //        yield return new WaitForSeconds(0.2f);
-
-    //        List<Vector2Int> matches = FindAllMatches();
-    //        comboFound = matches.Count > 0;
-
-    //        HashSet<GameObject> fruitsToDestroy = new HashSet<GameObject>();
-
-    //        if (comboFound)
-    //        {
-    //            foreach (Vector2Int pos in matches)
-    //            {
-    //                GameObject fruitObj = grid[pos.x, pos.y];
-    //                if (fruitObj == null) continue;
-
-    //                Fruit fruit = fruitObj.GetComponent<Fruit>();
-    //                if (fruit == null) continue;
-
-    //                // если суперфрукт — активируем его эффект
-    //                if (fruit.type == FruitType.LineHorizontal)
-    //                {
-    //                    yield return StartCoroutine(DestroyRow(fruit.y));
-    //                }
-    //                else if (fruit.type == FruitType.LineVertical)
-    //                {
-    //                    yield return StartCoroutine(DestroyColumn(fruit.x));
-    //                }
-    //                else
-    //                {
-    //                    // обычный фрукт — просто на уничтожение
-    //                    fruitsToDestroy.Add(fruitObj);
-    //                }
-    //            }
-
-    //            // Удаляем обычные фрукты
-    //            foreach (GameObject obj in fruitsToDestroy)
-    //            {
-    //                Fruit f = obj.GetComponent<Fruit>();
-    //                if (f != null)
-    //                    grid[f.x, f.y] = null;
-
-    //                Destroy(obj);
-    //            }
-
-    //            yield return new WaitForSeconds(0.2f);
-
-    //            CollapseColumns();
-    //            yield return new WaitForSeconds(0.2f);
-
-    //            FillEmptySpaces();
-    //            yield return new WaitForSeconds(0.2f);
-    //        }
-
-    //    } while (comboFound);
-
-    //    isProcessing = false;
-    //}
+        yield return new WaitForSeconds(0.2f);
+    }
 
     private IEnumerator DestroyRow(int row)
     {
@@ -518,7 +517,6 @@ public class Board : MonoBehaviour
         for (int x = 0; x < width; x++)
         {
             var obj = grid[x, row];
-            // grid[x,row] уже null для спецфрукта, поэтому он не попадёт в этот список
             if (obj != null)
             {
                 toDestroy.Add(obj);
@@ -557,9 +555,6 @@ public class Board : MonoBehaviour
 
         yield return new WaitForSeconds(0.1f);
     }
-
-
-
 
     private void CollapseColumns()
     {
